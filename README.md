@@ -47,15 +47,15 @@ world [day, hot]
 events {
   nonlethal: {
     needs {
-      attacjer: [!dead]
+      attacker: [!dead]
       victim: [!dead]
     }
-    message {$attacker bludgeon[sing=s] $<xictim>.}
+    message {$attacker bludgeon[sing=s] $<victim>.}
   }
   lethal: {
     needs {
-      a: [!dead]
-      b: [!dead]+[dead]
+      attacker: [!dead]
+      victim: [!dead]+[dead]
     }
     message {$attacker kill[sing=s] $<victim>.}
   }
@@ -116,6 +116,11 @@ on the numerosity of the subject ("singular" or "plural"). So, for example:
 The tense field has no intrinsic meaning, but can assist with conjugations.
 It's theoretically possible to have one tense per pronoun, which may be useul
 for supporting other languages.
+
+> [!NOTE]
+> It's a noted archaic inconsistency that they/them pronouns, often used for
+> nonbinary people even in singular form, still conjugate plural, as encoded
+> above.
 
 The example pronouns are compatible with many use cases, and can be used as-is.
 
