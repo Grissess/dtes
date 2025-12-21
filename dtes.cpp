@@ -476,6 +476,33 @@ class Event {
 						}
 				};
 
+				class PossessiveParticle : public Renderer {
+					public:
+						optional<string> actor;
+						PossessiveParticle(optional<string> a) : actor(a) {}
+
+						virtual void render(ostream &os, Binding &b) {
+							Player *ply = b.last_player_or(actor);
+							if(!ply) {
+								cerr << "possessiveparticle has no actor--either it was used before any playerref or no player was bound to the named red" << endl;
+								return;
+							}
+							if(!ply->name.empty() && tolower(ply->name.back()) == 's') {
+								os << "'";
+							} else {
+								os << "'s";
+							}
+						}
+						virtual ostream &write(ostream &os, const World &_) {
+							os << "<";
+							if(actor) {
+								os << "(" << *actor << ")";
+							}
+							os << "'s>";
+							return os;
+						}
+				};
+
 				static optional<string> parse_maybe_paren_name(istringstream &ss) {
 					if(ss.peek() == '(') {
 						ss.get();
@@ -576,6 +603,13 @@ class Event {
 									p = Pronouns::Part::possessive;
 								} else if(contents == "r") {
 									p = Pronouns::Part::reflexive;
+								} else if(contents == "'s") {
+									result.push_back(
+											unique_ptr<Renderer>(
+												new PossessiveParticle(actor)
+											)
+									);
+									break;
 								} else {
 									cerr << "unknown pronoun spec " << contents << "--I only know s, o, p, and r (and their uppercase variants)" << endl;
 									break;
