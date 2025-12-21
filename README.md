@@ -114,7 +114,7 @@ on the numerosity of the subject ("singular" or "plural"). So, for example:
 - They **walk** to the car. _(plural)_
 
 The tense field has no intrinsic meaning, but can assist with conjugations.
-It's theoretically possible to have one tense per pronoun, which may be useul
+It's theoretically possible to have one tense per pronoun, which may be useful
 for supporting other languages.
 
 > [!NOTE]
@@ -128,7 +128,7 @@ The example pronouns are compatible with many use cases, and can be used as-is.
 
 Each `Player` entry defines an "actor", a participant in the simulation against
 which events are ascribed. They have a **name**, a set of **pronouns**, and a
-set of **attributes**. Attributes are arbitary strings associated with the
+set of **attributes**. Attributes are arbitrary strings associated with the
 player, which can represent traits (`strong`), professions (`hunter`), states
 (`dead`), and more. They exist to let event authors filter on "allowed" actors,
 and have no intrinsic meaning.
@@ -235,8 +235,10 @@ The following special forms exist:
   tense matches, nothing is written. `(identifier)` may be omitted (see below).
 - `<(identifer)x>`: Given a Player bound to the named slot in `needs`, this
   writes out a pronoun. `x` may be one of `s` (subject), `o` (object), `p`
-  (possessive), or `r` (reflesive). Capitalizing the letter (`S`, `O`, `P`, or
-  `R`) capitalizes the first letter of the pronoun.
+  (possessive), or `r` (reflexive). Capitalizing the letter (`S`, `O`, `P`, or
+  `R`) capitalizes the first letter of the pronoun. `x` may also be `'s`, in
+  which case it emits the possessive particle `'s` unless the referenced
+  actor's name ends with an `s` or `S`, in which case it emits a `'` instead.
 
 `$<identifier>`, `$identifier`, and `<...>` forms all set a context-sensitive
 "last player referenced"; subsequent references depending on a player
