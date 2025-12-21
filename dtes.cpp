@@ -910,6 +910,7 @@ void usage() {
 	cerr << "I know the following arguments (no options yet!):" << endl;
 	cerr << " - cat -- just output the world that was input. useful for testing and validation" << endl;
 	cerr << " - try_events -- try every event in the set (to be sure they print), as long as enough players exist" << endl;
+	cerr << " - try_event <event> <needid>:<playerid>... -- print out an event with manually-specified bindings" << endl;
 	cerr << " - round -- run a round of simulation generating logs" << endl;
 }
 
@@ -932,7 +933,48 @@ int main(int argc, char **argv) {
 
 	if(action == "cat") {
 		cout << w;
-	} else if(action == "try_events") {
+	} else if(action == "try_event") {
+		if(args.size() < 3) {
+			cerr << "try_event <event> <needid>:<playerid>..." << endl;
+			return 1;
+		}
+		string evid = args.at(2);
+		if(!w.events.forward.contains(evid)) {
+			cerr << "no event named " << evid << "; the events are [";
+			write_joined(cerr, w.events.forward.begin(), w.events.forward.end(), [](const auto &pair) {
+					return pair.first;
+			});
+			cerr << "]" << endl;
+			return 1;
+		}
+		Event &ev = w.events.forward.at(evid);
+		if(args.size() - 3 != ev.involved_actors()) {
+			cerr << "event expects " << ev.involved_actors() << " actors; you supplied " << (args.size() - 3) << endl;
+			return 1;
+		}
+		map<string, Player *> bindings;
+		for(auto it = args.begin() + 3; it != args.end(); it++) {
+			auto pos = it->find(':');
+			if(pos == string::npos) {
+				cerr << "needid:playerid spec " << *it << " is invalid--need a colon" << endl;
+				return 1;
+			}
+			string needid = it->substr(0, pos);
+			string playerid = it->substr(pos + 1);
+			if(!ev.actors.forward.contains(needid)) {
+				cerr << "event does not contain a needid " << needid << endl;
+				return 1;
+			}
+			if(!w.players.forward.contains(playerid)) {
+				cerr << "no such playerid " << playerid << endl;
+				return 1;
+			}
+			bindings.insert_or_assign(needid, &w.players.forward.at(playerid));
+		}
+		auto binding = Event::Binding(ev, bindings);
+		binding.cause_effects(w);
+		cout << w << "---" << endl << binding << endl;
+	} else if(action == "try_events") { 
 		vector<Player *> players;
 		players.reserve(w.players.size());
 		for(auto &[_, ply]: w.players.forward) players.push_back(&ply);

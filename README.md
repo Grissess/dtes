@@ -262,6 +262,11 @@ The program understands three arguments:
   requires you define enough Players for every Event, but it will ignore the
   matchers in `needs`. It's useful to make sure your events correctly format
   themselves.
+- `try_event`: Given an `Event` identifier, followed by as many
+  `needid:playerid` as needed, this binds and prints a specific event after the
+  result of the changes to the world. It's useful for testing a very specific
+  circumstance. `needid` matches an identifier in `needs`, and `playerid`
+  matches the identifier (not the name!) of a `Player` entry.
 - `round`: Actually run a round, as described in the main loop above.
 
 # Building
