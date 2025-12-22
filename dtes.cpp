@@ -216,6 +216,8 @@ class Player {
 
 class Event {
 	public:
+		class Binding;
+
 		class ActorSpec {
 			public:
 				set<string> attr_matches;
@@ -264,29 +266,8 @@ class Event {
 					return true;
 				}
 
-				void mutate(Player *ply) const {
-					for(const string &s: attr_removes) {
-						ply->attrs.erase(s);
-					}
-					for(const string &s: attr_adds) {
-						ply->attrs.insert(s);
-					}
-					for(const auto &[key, val]: prop_adds) {
-						if(val.empty()) {
-							ply->props.erase(key);
-						} else {
-							ply->props.insert_or_assign(key, val);
-						}
-					}
-					for(const auto &[key, val]: prop_removes) {
-						if(val.empty()) {
-							ply->props.erase(key);
-						} else {
-							if(ply->props.contains(key) && ply->props.at(key) == val)
-								ply->props.erase(key);
-						}
-					}
-				}
+				void mutate_additions(Player *ply, Binding &b) const; 
+				void mutate_deletions(Player *ply, Binding &b) const; 
 
 				friend ostream &operator<<(ostream &os, const ActorSpec &as) {
 					os << "[";
@@ -336,7 +317,7 @@ class Event {
 						if(s.at(0) == '!') {
 							auto colon = s.find(':');
 							if(colon != string::npos) {
-								as.prop_neg_matches.insert_or_assign(s.substr(1, colon), s.substr(colon + 1));
+								as.prop_neg_matches.insert_or_assign(s.substr(1, colon - 1), s.substr(colon + 1));
 							} else {
 								as.attr_neg_matches.insert(s.substr(1));
 							}
@@ -623,7 +604,7 @@ class Event {
 					return optional<string>();
 				}
 
-				static vector<unique_ptr<Renderer>> parse_message(string msg) {
+				static vector<unique_ptr<Renderer>> parse_message(const string &msg) {
 					istringstream ss(msg);
 					string literal;
 					vector<unique_ptr<Renderer>> result;
@@ -785,6 +766,39 @@ ostream& operator<<(ostream &os, Event::Binding &b) {
 	return os;
 }
 
+void Event::ActorSpec::mutate_additions(Player *ply, Event::Binding &b) const {
+	for(const string &s: attr_adds) {
+		ply->attrs.insert(s);
+	}
+	for(const auto &[key, val]: prop_adds) {
+		if(val.empty()) {
+			ply->props.erase(key);
+		} else {
+			auto msg = Event::render::parse_message(val);
+			ostringstream out;
+			for(const auto &cmp: msg) cmp->render(out, b);
+			ply->props.insert_or_assign(key, out.str());
+		}
+	}
+}
+
+void Event::ActorSpec::mutate_deletions(Player *ply, Event::Binding &b) const {
+	for(const string &s: attr_removes) {
+		ply->attrs.erase(s);
+	}
+	for(const auto &[key, val]: prop_removes) {
+		if(val.empty()) {
+			ply->props.erase(key);
+		} else {
+			auto msg = Event::render::parse_message(val);
+			ostringstream out;
+			for(const auto &cmp: msg) cmp->render(out, b);
+			if(ply->props.contains(key) && ply->props.at(key) == out.str())
+				ply->props.erase(key);
+		}
+	}
+}
+
 class World {
 	public:
 		Namespace<Pronouns> pronouns;
@@ -864,13 +878,25 @@ optional<Event::Binding> Event::Binding::try_bind(const Event &e, const World &w
 }
 
 void Event::Binding::cause_effects(World &w) {
+	// We make this two-pass here because props can depend on (the rendering of)
+	// other props, and thus it's a bad idea to remove them first when they may
+	// be referenced elsewhere.
+
 	for(auto &[key, ply]: players) {
 		auto spec = event.actors.get(key);
 		if(spec) {
-			spec->mutate(ply);
+			spec->mutate_additions(ply, *this);
 		}
 	}
-	event.world_spec.mutate(&w.world_player);
+	event.world_spec.mutate_additions(&w.world_player, *this);
+
+	for(auto &[key, ply]: players) {
+		auto spec = event.actors.get(key);
+		if(spec) {
+			spec->mutate_deletions(ply, *this);
+		}
+	}
+	event.world_spec.mutate_deletions(&w.world_player, *this);
 }
 
 class Round {
