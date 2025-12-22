@@ -768,8 +768,12 @@ class Event {
 		Namespace<ActorSpec> actors;
 		ActorSpec world_spec;
 		vector<unique_ptr<Renderer>> render;
+		int multiplicity = 1, unlikeliness = 1;
 
 		size_t involved_actors() { return actors.size(); }
+
+		template<typename RNG>
+		bool should_happen(RNG &rng) { return rng() % unlikeliness == 0; }
 
 		ostream &write(ostream &os, const World &w) const;
 		istream &read(istream &is, World &w);
@@ -891,10 +895,11 @@ class Round {
 
 			for(auto &[_, event]: world.events.forward) {
 				Event *ev = &event;
-				if(ev->involved_actors() > 0)
-					player_events.push_back(ev);
-				else
-					unassoc_events.push_back(ev);
+				for(int i = 0; i < ev->multiplicity; i++)
+					if(ev->involved_actors() > 0)
+						player_events.push_back(ev);
+					else
+						unassoc_events.push_back(ev);
 			}
 
 			shuffle(player_pool.begin(), player_pool.end(), rng);
@@ -909,6 +914,7 @@ class Round {
 			while(!player_events.empty()) {
 				Event *ev = player_events.back();
 				player_events.pop_back();
+				if(!ev->should_happen(rng)) return;
 				auto b = Event::Binding::try_bind(*ev, world, pool);
 				if(b) {
 					bindings.push_back(*b);
@@ -925,6 +931,7 @@ class Round {
 			while(!unassoc_events.empty()) {
 				Event *ev = unassoc_events.back();
 				unassoc_events.pop_back();
+				if(!ev->should_happen(rng)) return;
 				auto b = Event::Binding::try_bind(*ev, world, no_pool);
 				if(b) {
 					bindings.push_back(*b);
@@ -937,7 +944,6 @@ class Round {
 				cause_player_event();
 			}
 			while(!unassoc_events.empty()) {
-				if(rng() % unassoc_chance != 0) break;
 				cause_unassoc_event();
 			}
 			for(auto &b: bindings) {
@@ -1005,7 +1011,7 @@ istream &Player::read(istream &is, World &w) {
 ostream &Event::write(ostream &os, const World &w) const {
 	os << "{ needs ";
 	actors.write(os, w, "    ", "  ");
-	os << " world " << world_spec << " message {";
+	os << " world " << world_spec << " chance " << multiplicity << "/" << unlikeliness << " message {";
 	for(const auto &r: render)
 		r->write(os, w);
 	os << "} }" << endl;
@@ -1038,6 +1044,14 @@ istream &Event::read(istream &is, World &w) {
 		} else if(section == "world") {
 			is >> ws;
 			is >> world_spec;
+		} else if(section == "chance") {
+			is >> multiplicity;
+			is >> ws;
+			if(is.peek() == '/') {
+				is.get();
+				is >> unlikeliness;
+				is >> ws;
+			}
 		} else if(section == "message") {
 			is >> ws;
 			if(is.peek() != '{') {
