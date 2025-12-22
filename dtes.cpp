@@ -205,6 +205,7 @@ class Player {
 		string name;
 		const Pronouns *pro;
 		set<string> attrs;
+		map<string, string> props;
 
 		Player() : name(), pro(nullptr) {}
 		Player(const string &name, Pronouns *pro) : name(name), pro(pro) {}
@@ -217,52 +218,110 @@ class Event {
 	public:
 		class ActorSpec {
 			public:
-				set<string> matches;
-				set<string> neg_matches;
-				set<string> adds;
-				set<string> removes;
+				set<string> attr_matches;
+				set<string> attr_neg_matches;
+				set<string> attr_adds;
+				set<string> attr_removes;
+
+				map<string, string> prop_matches;
+				map<string, string> prop_neg_matches;
+				map<string, string> prop_adds;
+				map<string, string> prop_removes;
 
 				void clear() {
-					matches.clear();
-					neg_matches.clear();
-					adds.clear();
-					removes.clear();
+					attr_matches.clear();
+					attr_neg_matches.clear();
+					attr_adds.clear();
+					attr_removes.clear();
+
+					prop_matches.clear();
+					prop_neg_matches.clear();
+					prop_adds.clear();
+					prop_removes.clear();
 				}
 
 				bool applies_to(const Player *ply) const {
-					for(const string &s: matches) {
+					for(const string &s: attr_matches) {
 						if(!ply->attrs.contains(s)) return false;
 					}
-					for(const string &s: neg_matches) {
+					for(const string &s: attr_neg_matches) {
 						if(ply->attrs.contains(s)) return false;
+					}
+					for(const auto &[key, val]: prop_matches) {
+						if(val.empty()) {
+							if(!ply->props.contains(key)) return false;
+						} else {
+							if(!ply->props.contains(key) || ply->props.at(key) != val) return false;
+						}
+					}
+					for(const auto &[key, val]: prop_neg_matches) {
+						if(val.empty()) {
+							if(ply->props.contains(key)) return false;
+						} else {
+							if(ply->props.contains(key) && ply->props.at(key) == val) return false;
+						}
 					}
 					return true;
 				}
 
 				void mutate(Player *ply) const {
-					for(const string &s: removes) {
+					for(const string &s: attr_removes) {
 						ply->attrs.erase(s);
 					}
-					for(const string &s: adds) {
+					for(const string &s: attr_adds) {
 						ply->attrs.insert(s);
+					}
+					for(const auto &[key, val]: prop_adds) {
+						if(val.empty()) {
+							ply->props.erase(key);
+						} else {
+							ply->props.insert_or_assign(key, val);
+						}
+					}
+					for(const auto &[key, val]: prop_removes) {
+						if(val.empty()) {
+							ply->props.erase(key);
+						} else {
+							if(ply->props.contains(key) && ply->props.at(key) == val)
+								ply->props.erase(key);
+						}
 					}
 				}
 
 				friend ostream &operator<<(ostream &os, const ActorSpec &as) {
 					os << "[";
-					write_joined(os, as.matches.begin(), as.matches.end());
-					write_joined(os, as.neg_matches.begin(), as.neg_matches.end(), [](const string &s) {
+					vector<string> specs;
+					auto append_spec = back_inserter(specs);
+					copy(as.attr_matches.begin(), as.attr_matches.end(), append_spec);
+					transform(as.attr_neg_matches.begin(), as.attr_neg_matches.end(), append_spec, [](const string &s) {
 							return "!" + s;
 					});
+					transform(as.prop_matches.begin(), as.prop_matches.end(), append_spec, [](const auto &pair) {
+							return pair.first + ":" + pair.second;
+					});
+					transform(as.prop_neg_matches.begin(), as.prop_neg_matches.end(), append_spec, [](const auto &pair) {
+							return "!" + pair.first + ":" + pair.second;
+					});
+					write_joined(os, specs.begin(), specs.end());
 					os << "]";
-					if(!as.adds.empty()) {
+					if(!(as.attr_adds.empty() && as.prop_adds.empty())) {
 						os << "+[";
-						write_joined(os, as.adds.begin(), as.adds.end());
+						specs.clear();
+						copy(as.attr_adds.begin(), as.attr_adds.end(), append_spec);
+						transform(as.prop_adds.begin(), as.prop_adds.end(), append_spec, [](const auto &pair) {
+								return pair.first + ":" + pair.second;
+						});
+						write_joined(os, specs.begin(), specs.end());
 						os << "]";
 					}
-					if(!as.removes.empty()) {
+					if(!(as.attr_removes.empty() && as.prop_removes.empty())) {
 						os << "-[";
-						write_joined(os, as.removes.begin(), as.removes.end());
+						specs.clear();
+						copy(as.attr_removes.begin(), as.attr_removes.end(), append_spec);
+						transform(as.prop_removes.begin(), as.prop_removes.end(), append_spec, [](const auto &pair) {
+								return pair.first + ":" + pair.second;
+						});
+						write_joined(os, specs.begin(), specs.end());
 						os << "]";
 					}
 					return os;
@@ -271,31 +330,56 @@ class Event {
 				friend istream &operator>>(istream &is, ActorSpec &as) {
 					vector list = list_of_strings(is);
 					if(!is) return is;
-					as.matches.clear();
-					as.neg_matches.clear();
+					as.attr_matches.clear();
+					as.attr_neg_matches.clear();
 					for(const string &s: list) {
-						if(s.at(0) == '!')
-							as.neg_matches.insert(s.substr(1));
-						else
-							as.matches.insert(s);
+						if(s.at(0) == '!') {
+							auto colon = s.find(':');
+							if(colon != string::npos) {
+								as.prop_neg_matches.insert_or_assign(s.substr(1, colon), s.substr(colon + 1));
+							} else {
+								as.attr_neg_matches.insert(s.substr(1));
+							}
+						} else {
+							auto colon = s.find(':');
+							if(colon != string::npos) {
+								as.prop_matches.insert_or_assign(s.substr(0, colon), s.substr(colon + 1));
+							} else {
+								as.attr_matches.insert(s);
+							}
+						}
 					}
 
-					as.adds.clear();
-					as.removes.clear();
+					as.attr_adds.clear();
+					as.attr_removes.clear();
 
 					is >> ws;
 					if(is.peek() == '+') {
 						is.get();
 						list = list_of_strings(is);
 						if(!is) return is;
-						for(const string &s: list) as.adds.insert(s);
+						for(const string &s: list) {
+							auto colon = s.find(':');
+							if(colon != string::npos) {
+								as.prop_adds.insert_or_assign(s.substr(0, colon), s.substr(colon + 1));
+							} else {
+								as.attr_adds.insert(s);
+							}
+						}
 						is >> ws;
 					}
 					if(is.peek() == '-') {
 						is.get();
 						list = list_of_strings(is);
 						if(!is) return is;
-						for(const string &s: list) as.removes.insert(s);
+						for(const string &s: list) {
+							auto colon = s.find(':');
+							if(colon != string::npos) {
+								as.prop_removes.insert_or_assign(s.substr(0, colon), s.substr(colon + 1));
+							} else {
+								as.attr_removes.insert(s);
+							}
+						}
 						is >> ws;
 					}
 					return is;
@@ -394,6 +478,32 @@ class Event {
 						}
 						virtual ostream &write(ostream &os, const World &_) {
 							os << "$<" << actor << ">";
+							return os;
+						}
+				};
+
+				class PropRef : public Renderer {
+					public:
+						optional<string> actor;
+						string prop;
+						PropRef(optional<string> a, string p): actor(a), prop(p) {}
+
+						virtual void render(ostream &os, Binding &b) {
+							Player *ply = b.last_player_or(actor);
+							if(!ply) {
+								cerr << "propref has no actor--either it was used before any playerref or no player was bound to the named ref" << endl;
+								return;
+							}
+							if(ply->props.contains(prop)) {
+								os << ply->props.at(prop);
+							}
+						}
+						virtual ostream &write(ostream &os, const World &_) {
+							os << "$<";
+							if(actor) {
+								os << *actor;
+							}
+							os << "." << prop << ">";
 							return os;
 						}
 				};
@@ -537,11 +647,24 @@ class Event {
 								} else {
 									ss >> ref;
 								}
-								result.push_back(
-										unique_ptr<Renderer>(
-											new PlayerRef(ref)
-										)
-								);
+								auto dot = ref.find('.');
+								if(dot != string::npos) {
+									const string actorn = ref.substr(0, dot);
+									const string prop = ref.substr(dot + 1);
+									optional<string> actor;
+									if(!actorn.empty()) actor = actorn;
+									result.push_back(
+											unique_ptr<Renderer>(
+												new PropRef(actor, prop)
+											)
+									);
+								} else {
+									result.push_back(
+											unique_ptr<Renderer>(
+												new PlayerRef(ref)
+											)
+									);
+								}
 								break;
 							}
 
@@ -757,6 +880,8 @@ class Round {
 
 		int unassoc_chance = 1;
 
+		vector<string> messages;
+
 		Round(World &w, mt19937 rng) : world(w), rng(rng) {
 			player_pool.reserve(world.players.size());
 			for(auto &[_, player]: world.players.forward) {
@@ -816,13 +941,18 @@ class Round {
 				cause_unassoc_event();
 			}
 			for(auto &b: bindings) {
+				ostringstream os;
+				os << b;
+				messages.push_back(os.str());
+			}
+			for(auto &b: bindings) {
 				b.cause_effects(world);
 			}
 		}
 
 		friend ostream &operator<<(ostream &os, Round &r) {
-			for(auto &b: r.bindings) {
-				os << b << endl;
+			for(auto &s: r.messages) {
+				os << s << endl;
 			}
 			return os;
 		}
@@ -832,7 +962,13 @@ ostream &Player::write(ostream &os, const World &w) const {
 	os << name << "(";
 	string p = w.pronouns.get_name(pro);
 	os << p << ")[";
-	write_joined(os, attrs.begin(), attrs.end());
+	vector<string> specs;
+	auto append_spec = back_inserter(specs);
+	copy(attrs.begin(), attrs.end(), append_spec);
+	transform(props.begin(), props.end(), append_spec, [](const auto &pair) {
+			return pair.first + ":" + pair.second;
+	});
+	write_joined(os, specs.begin(), specs.end());
 	os << "]";
 	return os;
 }
@@ -844,11 +980,23 @@ istream &Player::read(istream &is, World &w) {
 	pro = w.pronouns.get(pkey);
 
 	attrs.clear();
+	props.clear();
 	is >> ws;
 	if(is.peek() == '[') {
 		vector list = list_of_strings(is);
 		if(!is) return is;
-		for(const string &attr: list) attrs.insert(attr);
+		for(const string &attr: list) {
+			auto colon = attr.find(':');
+			if(colon != string::npos) {
+				const string name = attr.substr(0, colon);
+				const string value = attr.substr(colon + 1);
+				if(!(name.empty() || value.empty())) {
+					props.insert_or_assign(name, value);
+				}
+			} else {
+				attrs.insert(attr);
+			}
+		}
 	}
 
 	return is;
