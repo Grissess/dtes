@@ -908,8 +908,6 @@ class Round {
 		vector<Event *> unassoc_events;
 		vector<Event::Binding> bindings;
 
-		int unassoc_chance = 1;
-
 		vector<string> messages;
 
 		Round(World &w, mt19937 rng) : world(w), rng(rng) {
