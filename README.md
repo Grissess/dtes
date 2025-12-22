@@ -275,8 +275,60 @@ Use `make`. This should work in any modestly modern UNIX system with a C++
 compiler that knows the C++20 standard. I recommend WSL on Windows for
 simplicity, if you don't already have a Cygwin prefix.
 
+# Theory
+
+This section briefly discusses the probability theory involved with the
+simulation. It is not at all necessary to know this to use the tool, or even to
+make worlds, although some of the information here may prove useful for those
+developing sets of events.
+
+When a simulation round is done, all "player" events (those that have at least
+one needed actor) and all players are "shuffled" using an implementation of the
+Mersenne Twister known as MT19937, a pseudorandom number generator (PRNG) with
+very good uniform random properties in its sample set, here unsigned 32-bit
+integers. This PRNG is seeded initially with state from the `std::random_dev`
+generator, often your platforms cryptographically-secure PRNG (CSPRNG) provided
+via `/dev/urandom` or `CryptGenRandom`. The shuffle itself is in the standard
+C++ library, but is likely a [Fisher-Yates][fy] shuffle, which has the property
+of making the probability of every permutation (ordering of the elements)
+uniform up to the uniformity of the underlying RNG. In practice, most FY
+shuffles implement "uniform" sampling within a fixed range using the modulus
+(`%`) operator, and this often introduces a very slight bias toward the lower
+numbers if the range's size isn't divisible by the state size. In a typical
+"in-place" implementation of FY, this has a very, very slight tendency to
+reverse the array, putting the last elements toward the front, although this is
+a very complex topic and the biases so introduced (or not, depending on your
+platform and the rigor of your libstd++ implementation) will likely have no
+tangible effect on the simulation for almost all intents and purposes.
+
+After the shuffles are done, player events are picked in order until no players
+or player events remain. Thus, with enough possible events, every player should
+participate in one event every round. Binding is done eagerly; in the order
+specified, each "needs" slot is bound to the first matching player in the
+players list, and that element is removed (preventing them from being rebound
+elsewhere). Since the matching predicates in the "needs" section are
+independent of the order, every permutation being equally likely implies every
+arbitrarily-partitioned subset permutation is equally likely--so events that
+have appropriately flexible choices of actors will tend to pick every possible
+set of players they can over time.
+
+As players are removed when bound to events, this means that later events may
+fail to bind because their "needs" predicates no longer match any valid target.
+This is especially likely to happen when there are few matching players to
+begin with. This is intentional; it is expected that events with "rare matches"
+be concommitantly "rare" to occur, and the simulator makes no attempt to
+maximize the number of events it can retire. In pathological cases, this can
+lead to the event list being exhausted before the player list, such that not
+every player is mentioned or used in an event. For this reason, the size of the
+event list should be designed to be significantly larger than the player list.
+Each event is a unique object, however they can have the same details (needs,
+world, and message sections), which allows the simple use of multiplicity
+should some events be more "likely" than others, especially if they may be used
+as fallbacks.
+
 # Copyright
 
 Grissess, 2025. Licensed under the GPL-3; see COPYING for details.
 
 [sim]: https://brantsteele.net/hungergames/disclaimer.php
+[fy]: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
