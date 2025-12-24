@@ -586,6 +586,7 @@ class Event {
 								cerr << "propref has no actor--either it was used before any playerref or no player was bound to the named ref" << endl;
 								return;
 							}
+							b.last_player = ply;
 							if(ply->props.contains(prop)) {
 								os << ply->props.at(prop);
 							}

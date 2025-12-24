@@ -40,8 +40,22 @@ pronouns {
 }
 players {
   foo: Foo(female)[hunter]
-  bar: Bar(male)[has_gun, dead]
+  bar: Bar(male)[dead, weapon:gun]
   baz: The Big Baz(nonbin)[]
+}
+relations {
+  likes: undir {
+    foo bar
+    bar foo
+  }
+  revenge: dir {
+    foo baz
+  }
+  same: undir reflex {
+    foo foo
+    bar bar
+    baz baz
+  }
 }
 world [day, hot]
 events {
@@ -59,6 +73,21 @@ events {
     }
     message {$attacker kill[sing=s] $<victim>.}
   }
+  uses_property: {
+    needs {
+      attacker: [!dead, weapon:]
+      victim: [!dead]+[dead]
+    }
+    message {$attacker kill[sing=s] $<victim> with <(attacker)p> $<.weapon>.}
+  }
+  changes_property: {
+    needs {
+      a: [!dead, weapon:]-[weapon:]
+      b: [!dead, !weapon:]+[weapon:$<a.weapon>]
+    }
+    rel { a:likes:b }
+    message {$a find[sing=s] $b unarmed, and give[(a)sing=s] <(b)o> <(a)p> $<.weapon>.}
+  }
   world_dependent: {
     needs { a: [!dead] }
     world [hot]
@@ -68,16 +97,26 @@ events {
     world [day]+[night]-[day]
     message {The sun sets.}
   }
+  random_chance: {
+    world []+[party]
+    chance 1/5
+    message {The party starts!}
+  }
+  relation_based: {
+    needs { a: [!dead] b: [!dead] }
+    rel { !a:likes:b +a:likes:b }
+    message {$a and $b have grown fond of each other.}
+  }
 }
 ```
 
-Sections (such as `pronouns`, `players`, `world`, and `events` can occur in any
-order. However, as they are read top-to-bottom, any definition that _depends_
-on a previous definition requires the previous definition to have been done.
-(This is the case with the `pronouns` referenced in `players`.) Attributes,
-which are given to players and matched in events, are string values, and thus
-not "references" in that sense. The same applies to "world attributes". See the
-following sections for more details.
+Sections (such as `pronouns`, `players`, `world`, `relations`, and `events` can
+occur in any order. However, as they are read top-to-bottom, any definition
+that _depends_ on a previous definition requires the previous definition to
+have been done. (This is the case with the `pronouns` referenced in `players`.)
+Attributes, which are given to players and matched in events, are string
+values, and thus not "references" in that sense. The same applies to "world
+attributes". See the following sections for more details.
 
 > [!NOTE]
 > Technically, you can even include the same section multiple times. In theory,
@@ -110,8 +149,8 @@ The first four entries correspond to parts of speech; the fifth is a "tense",
 used to adjust verb conjugations. In English, at least, verbs conjugate based
 on the numerosity of the subject ("singular" or "plural"). So, for example:
 
-- He **walks** to the car. _(singular)_
-- They **walk** to the car. _(plural)_
+- He **walks** to the park. _(singular)_
+- They **walk** to the park. _(plural)_
 
 The tense field has no intrinsic meaning, but can assist with conjugations.
 It's theoretically possible to have one tense per pronoun, which may be useful
@@ -127,11 +166,11 @@ The example pronouns are compatible with many use cases, and can be used as-is.
 ## Players
 
 Each `Player` entry defines an "actor", a participant in the simulation against
-which events are ascribed. They have a **name**, a set of **pronouns**, and a
-set of **attributes**. Attributes are arbitrary strings associated with the
-player, which can represent traits (`strong`), professions (`hunter`), states
-(`dead`), and more. They exist to let event authors filter on "allowed" actors,
-and have no intrinsic meaning.
+which events are ascribed. They have a **name**, a set of **pronouns**, a set
+of **attributes**, and a map of **properties**. Attributes are arbitrary
+strings associated with the player, which can represent traits (`strong`),
+professions (`hunter`), states (`dead`), and more. They exist to let event
+authors filter on "allowed" actors, and have no intrinsic meaning.
 
 The format is:
 
@@ -142,7 +181,49 @@ identifier: name(pronouns)[attribute, attribute, attribute]
 `name` may contain spaces, but can't start with a space. `pronouns` should
 refer to the identifier of a `Pronoun` entry defined earlier in the file. The
 order of `attribute` declaration is unimportant, and redundant entries are
-ignored. The `identifier` is presently unused.
+ignored. The `identifier` is used in `relations`.
+
+If an attribute contains a `:`, it becomes a **property**, of the form
+`key:value`. Properties have a name but are associated with a value; neither
+can be empty.
+
+## Relations
+
+Relations entries each define a kind of relation, which is a property that
+connects two players, **left** and **right**. Their format is:
+
+```
+identifier: dir/undir { a b c d ... }
+identifier: dir/undir reflex { a a b c d d ... }
+```
+
+Relations can be **directed** or **undirected**; a relationship that is
+undirected always has (right, left) given (left, right) as an edge. One might
+say it is "commutative".
+
+A relation can also be **reflexive**; it isn't by default, but this can be
+added with `reflex`. Reflexive relations can contain pairs (a, a)--that is, a
+player can be in the relation with themselves.
+
+After the specification is a brace block with whitespace-separated `Player`
+identifiers. Each pair is an edge ("in" the relation). For undirected
+relations, `a b` implies `b a`, but this is not required--it is added
+automatically (and will be part of the output).
+
+Relations are a powerful tool, and can be used for complicated modeling, but
+beware of the complexity this adds. Some examples:
+
+- A relation `allies: undir { }` could encode alliances of convenience between
+  players. These are generally understood to be mutual, so an undirected
+  relation is a good fit.
+- A relation `vengeance: dir { }` could define an especial enmity from one
+  player to another. The "target" may not even be aware of this enmity, so a
+  directed relation is convenient.
+- A relation `same: undir reflex { }` could be used to contain an edge `a a`
+  for each character. (Directionality doesn't matter for reflex edges.) This
+  isn't very useful on its own, but can be used to filter events so that two
+  `needs` references don't contain the same character. (When relations aren't
+  needed, attributes are much more efficient.)
 
 ## World
 
@@ -166,7 +247,9 @@ contain sub-blocks. An `Event` entry is generally
 ```
 identifier: {
   needs { ... }
+  rel { ... }
   world [...]
+  chance a/b
   message {...}
 }
 ```
@@ -201,9 +284,46 @@ bound in this position. Also optionally, a `-` attribute list can be used to
 _remove_ attributes from a matching `Player`. When both are used, the `+` list
 must precede the `-` list.
 
+Without loss of generality, the attributes in these lists can contain a colon;
+in this case, they refer to properties. If the value is omitted from the match
+list, the _presence_ is tested for (matching or non-matching with `!`).
+Similarly, if the value is omitted from a deletion, the property is deleted
+regardless of its value. (Normally it would be deleted only if the value
+matched.) Adding a property will also be done only if the value is non-empty.
+
+The value part of a property is expanded as with `message` below; in
+particular, one can expand properties of other actors, so `b:
+[!weapon:]+[weapon:$<a.weapon>]` will set `b`'s `weapon` property to `a`'s
+`weapon` property. All other message expansions should work; it should be noted
+that additions are processed before deletions, so `b` will still receive `a`'s
+`weapon` even if `a` removes the property afterward (as with `a:
+[weapon:]-[weapon:]`). As with `message`s, this is fully general, and any
+properties can be expanded, cross-expanded, et cetera. Note that, if the
+property expands to the empty string, the property is removed instead.
+
 Changes to players' attributes are atomic; they are only done after the full
 set of Events are chosen. This means that, within a single Round, one Event
-cannot "trigger" another one to match.
+cannot "trigger" another one to match when it did not before.
+
+### Rel
+
+This section contains relations. If this isn't empty, the semantics of matching
+change; in particular, two different `needs` entries can match the same
+`Player`. The matching algorithm is also much slower, so use this only if
+needed.
+
+Each whitespace separated word in this list is of the following forms:
+
+- `left:rel:right`: for this event to fire, the `needs` refs (`left`, `right`)
+  must be in the named relation `rel`.
+- `!left:rel:right`: for this event to fire, the `needs` refs (`left`, `right`)
+  must _not_ be in the named relation `rel`.
+- `+left:rel:right`: when this event fires, players bound to `needs` refs
+  (`left`, `right`) will be added to the named relation `rel`. In addition,
+  this event will _not_ fire if `rel` is not reflexive and `left` and `right`
+  bind to the same player.
+- `-left:rel:right`: when this event fires, players bound to `needs` refs
+  (`left`, `right`) will be removed from the named relation `rel`.
 
 ### World
 
@@ -228,6 +348,10 @@ The following special forms exist:
 - `$<identifier>`, `$identifier` _(only when followed by whitespace)_: Given a
   Player bound to the named slot in `needs`, this interpolates to that Player's
   name.
+- `$<identifier.prop>`, `$identifier.prop` _(only when followed by
+  whitespace)_: Expands to the `prop` property of the player bound to the named
+  slot in `needs`. If that property doesn't exist or isn't defined, this
+  expands to nothing.
 - `[(identifier)t1=a/t2=b/t3=c]`: Given a Player bound to the named slot in
   `needs`, this inspects the Player's `Pronouns` "tense" field. If the tense
   matches one of the tenses (here `t1`, `t2`, or `t3`), the corresponding
@@ -240,24 +364,35 @@ The following special forms exist:
   which case it emits the possessive particle `'s` unless the referenced
   actor's name ends with an `s` or `S`, in which case it emits a `'` instead.
 
-`$<identifier>`, `$identifier`, and `<...>` forms all set a context-sensitive
-"last player referenced"; subsequent references depending on a player
-identifier (`[...]` and `<...>` forms) use this implicitly if their
-parenthesized identifier is omitted. So, for example:
+`$<identifier>`, `$identifier` (including property references), and `<...>`
+forms all set a context-sensitive "last player referenced"; subsequent
+references depending on a player identifier (`[...]` and `<...>` forms) use
+this implicitly if their parenthesized identifier is omitted. Similarly, the
+property references may have their first identifier omitted to use this "last
+player", as in `$<.prop>` or `$.prop`. So, for example:
 
 ```
 $a walk[sing=s] off the edge of the world.
 ```
 
 Will conjugate `walk` or `walks` based on the tense of `a`'s pronouns (more
-accurately, the pronouns of the Player bound to `a`).
+accurately, the pronouns of the Player bound to `a`), and
+
+```
+$a shoot[sing=s] <p> $.rangewep at $<b>.
+```
+
+Will use `a`'s property `rangewep`, as well as `a`'s possessive pronoun.
 
 # Running
 
 The program understands three arguments:
 
 - `cat`: Read the world, and write it out. This is mostly useful for validation
-  and testing.
+  and testing. Provided the world is valid, the output will be _semantically_
+  equivalent to the input, but might not be syntactically equivalent; in
+  particular, whitespace may be rearranged, attributes and properties may be
+  reordered, and some `message` references may be rewritten.
 - `try_events`: Try to run every Event defined in the World. This still
   requires you define enough Players for every Event, but it will ignore the
   matchers in `needs`. It's useful to make sure your events correctly format
@@ -267,7 +402,10 @@ The program understands three arguments:
   result of the changes to the world. It's useful for testing a very specific
   circumstance. `needid` matches an identifier in `needs`, and `playerid`
   matches the identifier (not the name!) of a `Player` entry.
-- `round`: Actually run a round, as described in the main loop above.
+- `round`: Actually run a round, as described in the main loop above. The state
+  of the world after the round is printed, followed by `---` (which prevents
+  further parsing), followed by the messages emitted. This form is sufficient
+  to pass to `round` again to make further progress.
 
 # Building
 
