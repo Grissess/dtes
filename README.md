@@ -35,7 +35,7 @@ pronouns {
   female: she her her herself sing
   male: he him his himself sing
   neuter: it it its itself sing
-  nonbin: they them their themself plur
+  nonbin: they them their themself nb
   plural: they them their themselves plur
 }
 players {
@@ -158,8 +158,21 @@ for supporting other languages.
 
 > [!NOTE]
 > It's a noted archaic inconsistency that they/them pronouns, often used for
-> nonbinary people even in singular form, still conjugate plural, as encoded
-> above.
+> non-binary persons even in singular form, still conjugate plural, as encoded
+> above. However, they still conjugate singular when named, so given an
+> `Alex(nonbin)`, for example:
+> ```
+> $alex walk[sing=s] to the park. <S> walk[sing=s] to the park.
+> ```
+> results in the unlikely phrase "Alex walk to the park. They walk to the
+> park." For this reason, non-binary persons often get a third tense, here
+> `nb`, to differentiate. A corrected version might look like:
+> ```
+> $alex walk[sing=s/nb=s] to the park. <S> walk[sing=s] to the park.
+> ```
+> resulting in "Alex walks to the park. They walk to the park.", where the
+> crucial difference is whether or not `Alex` is named or referred to by a
+> pronoun (like `<S>` above).
 
 The example pronouns are compatible with many use cases, and can be used as-is.
 
