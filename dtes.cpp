@@ -56,10 +56,22 @@ void write_joined(ostream &os, It first, It last, string join = ", ") {
 }
 
 template<typename It, typename Tr>
+requires requires(It it, Tr f) {
+	{ f(*it) } -> convertible_to<string>;
+}
 void write_joined(ostream &os, It first, It last, Tr transform, string join = ", ") {
 	if(first == last) return;
 	os << transform(*first++);
 	for(; first != last; first++) os << join << transform(*first);
+}
+
+string colon_sep(const pair<string, string> &pair) {
+	return pair.first + ":" + pair.second;
+}
+
+string colon_sep_triple(const tuple<string, string, string> &tup) {
+	const auto &[one, two, three] = tup;
+	return one + ":" + two + ":" + three;
 }
 
 class World;
@@ -214,6 +226,33 @@ class Player {
 		istream &read(istream &is, World &w);
 };
 
+class Relation {
+	public:
+		bool directional;
+		bool allow_reflex;
+		set<pair<Player *, Player *>> edges;
+
+		void insert(Player *left, Player *right) {
+			if(!allow_reflex && left == right) return;
+			edges.insert({left, right});
+			if(!directional)
+				edges.insert({right, left});
+		}
+
+		void erase(Player *left, Player *right) {
+			edges.erase({left, right});
+			if(!directional)
+				edges.erase({right, left});
+		}
+
+		bool contains(Player *left, Player *right) const {
+			return edges.contains({left, right});
+		}
+
+		ostream &write(ostream &os, const World &w) const;
+		istream &read(istream &is, World &w);
+};
+
 class Event {
 	public:
 		class Binding;
@@ -277,11 +316,9 @@ class Event {
 					transform(as.attr_neg_matches.begin(), as.attr_neg_matches.end(), append_spec, [](const string &s) {
 							return "!" + s;
 					});
-					transform(as.prop_matches.begin(), as.prop_matches.end(), append_spec, [](const auto &pair) {
-							return pair.first + ":" + pair.second;
-					});
+					transform(as.prop_matches.begin(), as.prop_matches.end(), append_spec, colon_sep);
 					transform(as.prop_neg_matches.begin(), as.prop_neg_matches.end(), append_spec, [](const auto &pair) {
-							return "!" + pair.first + ":" + pair.second;
+							return "!" + colon_sep(pair);
 					});
 					write_joined(os, specs.begin(), specs.end());
 					os << "]";
@@ -289,9 +326,7 @@ class Event {
 						os << "+[";
 						specs.clear();
 						copy(as.attr_adds.begin(), as.attr_adds.end(), append_spec);
-						transform(as.prop_adds.begin(), as.prop_adds.end(), append_spec, [](const auto &pair) {
-								return pair.first + ":" + pair.second;
-						});
+						transform(as.prop_adds.begin(), as.prop_adds.end(), append_spec, colon_sep);
 						write_joined(os, specs.begin(), specs.end());
 						os << "]";
 					}
@@ -299,9 +334,7 @@ class Event {
 						os << "-[";
 						specs.clear();
 						copy(as.attr_removes.begin(), as.attr_removes.end(), append_spec);
-						transform(as.prop_removes.begin(), as.prop_removes.end(), append_spec, [](const auto &pair) {
-								return pair.first + ":" + pair.second;
-						});
+						transform(as.prop_removes.begin(), as.prop_removes.end(), append_spec, colon_sep);
 						write_joined(os, specs.begin(), specs.end());
 						os << "]";
 					}
@@ -373,6 +406,84 @@ class Event {
 
 				istream &read(istream &is, World &w) {
 					is >> *this;
+					return is;
+				}
+		};
+
+		class RelSpec {
+			public:
+				using Triple = tuple<string, string, string>;
+				set<Triple> matches;
+				set<Triple> neg_matches;
+				set<Triple> adds;
+				set<Triple> removes;
+
+				void clear() {
+					matches.clear();
+					neg_matches.clear();
+					adds.clear();
+					removes.clear();
+				}
+
+				bool empty() const {
+					return matches.empty() && neg_matches.empty();
+				}
+
+				bool satisfied(Binding &b, const World &w) const;
+				void mutate(Binding &b, World &w) const;
+
+				friend ostream &operator<<(ostream &os, const RelSpec &rs) {
+					os << "{ ";
+					vector<string> specs;
+					auto append_spec = back_inserter(specs);
+					transform(rs.matches.begin(), rs.matches.end(), append_spec, colon_sep_triple);
+					transform(rs.neg_matches.begin(), rs.neg_matches.end(), append_spec, [](const Triple &t) {
+							return "!" + colon_sep_triple(t);
+					});
+					transform(rs.adds.begin(), rs.adds.end(), append_spec, [](const Triple &t) {
+							return "+" + colon_sep_triple(t);
+					});
+					transform(rs.removes.begin(), rs.removes.end(), append_spec, [](const Triple &t) {
+							return "-" + colon_sep_triple(t);
+					});
+					write_joined(os, specs.begin(), specs.end(), " ");
+					os << " }";
+					return os;
+				}
+
+				friend istream &operator>>(istream &is, RelSpec &rs) {
+					is >> ws;
+					if(is.peek() != '{') {
+						is.setstate(ios_base::failbit);
+						return is;
+					}
+					is.get();
+
+					rs.clear();
+					string elem;
+					while(is >> ws, is >> elem, elem != "}") {
+						if(elem.empty()) continue;
+						set<Triple> *mod = &rs.matches;
+						if(elem.at(0) == '!') {
+							mod = &rs.neg_matches;
+							elem = elem.substr(1);
+						} else if(elem.at(0) == '+') {
+							mod = &rs.adds;
+							elem = elem.substr(1);
+						} else if(elem.at(0) == '-') {
+							mod = &rs.removes;
+							elem = elem.substr(1);
+						}
+
+						istringstream parser(elem);
+						string left, rel, right;
+						if(!getline(parser, left, ':')) continue;
+						if(!getline(parser, rel, ':')) continue;
+						right.append(istreambuf_iterator<char>(parser), istreambuf_iterator<char>());
+						if(left.empty() || rel.empty() || right.empty()) continue;
+						mod->insert(Triple(left, rel, right));
+					}
+
 					return is;
 				}
 		};
@@ -748,6 +859,7 @@ class Event {
 
 		Namespace<ActorSpec> actors;
 		ActorSpec world_spec;
+		RelSpec rel;
 		vector<unique_ptr<Renderer>> render;
 		int multiplicity = 1, unlikeliness = 1;
 
@@ -804,6 +916,7 @@ class World {
 		Namespace<Pronouns> pronouns;
 		Namespace<Player> players;
 		Namespace<Event> events;
+		Namespace<Relation> relations;
 		Player world_player{"<world>", nullptr};
 
 	friend ostream &operator<<(ostream &os, const World &w) {
@@ -812,6 +925,9 @@ class World {
 		os << endl;
 		os << "players ";
 		w.players.write(os, w);
+		os << endl;
+		os << "relations ";
+		w.relations.write(os, w);
 		os << endl;
 		os << "world [";
 		write_joined(os, w.world_player.attrs.begin(), w.world_player.attrs.end());
@@ -836,6 +952,9 @@ class World {
 			} else if(section == "players") {
 				w.players.read(is, w);
 				is >> ws;
+			} else if(section == "relations") {
+				w.relations.read(is, w);
+				is >> ws;
 			} else if(section == "events") {
 				w.events.read(is, w);
 				is >> ws;
@@ -854,9 +973,101 @@ class World {
 	}
 };
 
-optional<Event::Binding> Event::Binding::try_bind(const Event &e, const World &w, vector<Player *> &players, bool use_attrs) {
-	if(use_attrs && !e.world_spec.applies_to(&w.world_player)) return optional<Binding>();
+bool Event::RelSpec::satisfied(Event::Binding &b, const World &w) const {
+	for(const auto &[left, rel, right]: matches) {
+		const Relation *rp = w.relations.get(rel);
+		if(!rp) {
+			cerr << "relspec: relation " << rel << " does not exist" << endl;
+			continue;
+		}
+		Player *l = b.players[left], *r = b.players[right];
+		if(!l) {
+			cerr << "relspec: needsref " << left << " does not exist" << endl;
+			continue;
+		}
+		if(!r) {
+			cerr << "relspec: needsref " << right << " does not exist" << endl;
+			continue;
+		}
+		if(!rp->contains(l, r)) return false;
+	}
+	for(const auto &[left, rel, right]: neg_matches) {
+		const Relation *rp = w.relations.get(rel);
+		if(!rp) {
+			cerr << "relspec: relation " << rel << " does not exist" << endl;
+			continue;
+		}
+		Player *l = b.players[left], *r = b.players[right];
+		if(!l) {
+			cerr << "relspec: needsref " << left << " does not exist" << endl;
+			continue;
+		}
+		if(!r) {
+			cerr << "relspec: needsref " << right << " does not exist" << endl;
+			continue;
+		}
+		if(rp->contains(l, r)) return false;
+	}
+	// a bit of a special case of separating the matcher/mutator duty: don't allow
+	// an add to execute that would violate a reflex
+	for(const auto &[left, rel, right]: adds) {
+		const Relation *rp = w.relations.get(rel);
+		if(!rp) {
+			cerr << "relspec: relation " << rel << " does not exist" << endl;
+			continue;
+		}
+		Player *l = b.players[left], *r = b.players[right];
+		if(!l) {
+			cerr << "relspec: needsref " << left << " does not exist" << endl;
+			continue;
+		}
+		if(!r) {
+			cerr << "relspec: needsref " << right << " does not exist" << endl;
+			continue;
+		}
+		if(!rp->allow_reflex && l == r) return false;
+	}
+	return true;
+}
 
+void Event::RelSpec::mutate(Event::Binding &b, World &w) const {
+	for(const auto &[left, rel, right]: adds) {
+		Relation *rp = w.relations.get(rel);
+		if(!rp) {
+			cerr << "relspec: relation " << rel << " does not exist" << endl;
+			continue;
+		}
+		Player *l = b.players[left], *r = b.players[right];
+		if(!l) {
+			cerr << "relspec: needsref " << left << " does not exist" << endl;
+			continue;
+		}
+		if(!r) {
+			cerr << "relspec: needsref " << right << " does not exist" << endl;
+			continue;
+		}
+		rp->insert(l, r);
+	}
+	for(const auto &[left, rel, right]: removes) {
+		Relation *rp = w.relations.get(rel);
+		if(!rp) {
+			cerr << "relspec: relation " << rel << " does not exist" << endl;
+			continue;
+		}
+		Player *l = b.players[left], *r = b.players[right];
+		if(!l) {
+			cerr << "relspec: needsref " << left << " does not exist" << endl;
+			continue;
+		}
+		if(!r) {
+			cerr << "relspec: needsref " << right << " does not exist" << endl;
+			continue;
+		}
+		rp->erase(l, r);
+	}
+}
+
+static optional<Event::Binding> _try_bind_fastpath(const Event &e, const World &w, vector<Player *> &players, bool use_attrs) {
 	map<string, Player *> bindings;
 
 	for(const auto &[name, spec]: e.actors.forward) {
@@ -871,10 +1082,59 @@ optional<Event::Binding> Event::Binding::try_bind(const Event &e, const World &w
 			}
 			it++;
 		}
-		if(!found) return optional<Binding>();
+		if(!found) return optional<Event::Binding>();
 	}
 
-	return make_optional(Binding(e, bindings));
+	return make_optional(Event::Binding(e, bindings));
+}
+
+optional<Event::Binding> Event::Binding::try_bind(const Event &e, const World &w, vector<Player *> &players, bool use_attrs) {
+	if(use_attrs && !e.world_spec.applies_to(&w.world_player)) return optional<Binding>();
+	if(!use_attrs || e.rel.empty()) return _try_bind_fastpath(e, w, players, use_attrs);
+
+	// theorem: use_attrs is asserted here
+	map<string, vector<Player *>> candidates;
+	for(const auto &[name, spec]: e.actors.forward) {
+		vector<Player *> avail;
+		for(Player *p: players) {
+			if(spec.applies_to(p))
+				avail.push_back(p);
+		}
+		if(avail.empty()) return optional<Event::Binding>();  // no way to proceed if any set is empty
+		candidates.insert_or_assign(name, avail);
+	}
+
+	// we need an order on keys, so we assemble it here
+	vector<string> keys;
+	vector<vector<Player *>> sets;
+	vector<int> indices;
+	for(const auto &[name, set]: candidates) {
+		keys.push_back(name);
+		indices.push_back(0);
+		sets.push_back(set);
+	}
+
+	while(true) {
+		map<string, Player *> bindings;
+		for(int i = 0; i < keys.size(); i++) {
+			bindings.insert_or_assign(keys[i], sets[i][indices[i]]);
+		}
+		Binding b(e, bindings);
+		if(e.rel.satisfied(b, w)) return make_optional(b);
+
+		bool exhausted = true;
+		for(int i = 0; i < keys.size(); i++) {
+			indices[i]++;
+			if(indices[i] >= sets[i].size()) {
+				indices[i] = 0;
+			} else {
+				exhausted = false;
+				break;
+			}
+		}
+		if(exhausted) break;
+	}
+	return optional<Event::Binding>();
 }
 
 void Event::Binding::cause_effects(World &w) {
@@ -897,6 +1157,8 @@ void Event::Binding::cause_effects(World &w) {
 		}
 	}
 	event.world_spec.mutate_deletions(&w.world_player, *this);
+
+	event.rel.mutate(*this, w);
 }
 
 class Round {
@@ -973,7 +1235,9 @@ class Round {
 			for(auto &b: bindings) {
 				ostringstream os;
 				os << b;
-				messages.push_back(os.str());
+				string message = os.str();
+				if(!message.empty())
+					messages.push_back(message);
 			}
 			for(auto &b: bindings) {
 				b.cause_effects(world);
@@ -995,9 +1259,7 @@ ostream &Player::write(ostream &os, const World &w) const {
 	vector<string> specs;
 	auto append_spec = back_inserter(specs);
 	copy(attrs.begin(), attrs.end(), append_spec);
-	transform(props.begin(), props.end(), append_spec, [](const auto &pair) {
-			return pair.first + ":" + pair.second;
-	});
+	transform(props.begin(), props.end(), append_spec, colon_sep);
 	write_joined(os, specs.begin(), specs.end());
 	os << "]";
 	return os;
@@ -1032,10 +1294,78 @@ istream &Player::read(istream &is, World &w) {
 	return is;
 }
 
+ostream &Relation::write(ostream &os, const World &w) const {
+	if(directional) {
+		os << "dir";
+	} else {
+		os << "undir";
+	}
+	if(allow_reflex) {
+		os << " reflex";
+	}
+	os << " {" << endl;
+	for(const auto &[lp, rp]: edges) {
+		const string lname = w.players.get_name(lp), rname = w.players.get_name(rp);
+		if(!(lname.empty() || rname.empty())) {
+			os << "    " << lname << " " << rname << endl;
+		}
+	}
+	os << "  }";
+	return os;
+}
+
+istream &Relation::read(istream &is, World &w) {
+	string dir;
+	if(!(is >> dir)) return is;
+	if(dir == "dir")
+		directional = true;
+	else if(dir == "undir")
+		directional = false;
+	else {
+		is.setstate(ios_base::failbit);
+		return is;
+	}
+	allow_reflex = false;
+	is >> ws;
+	if(is.peek() != '{') {
+		string token;
+		if(!(is >> token)) return is;
+		if(token == "reflex") {
+			allow_reflex = true;
+		} else {
+			is.setstate(ios_base::failbit);
+			return is;
+		}
+		is >> ws;
+		if(is.peek() != '{') {
+			is.setstate(ios_base::failbit);
+			return is;
+		}
+	}
+	is.get();
+
+	while(true) {
+		string left, right;
+		is >> left;
+		if(left == "}") break;
+		is >> right;
+		Player *lp = w.players.get(left), *rp = w.players.get(right);
+		if(!lp) {
+			cerr << "bad player name " << left << " in relation" << endl;
+		}
+		if(!rp) {
+			cerr << "bad player name " << right << " in relation" << endl;
+		}
+		if(!lp || !rp) continue;
+		insert(lp, rp);
+	}
+	return is;
+}
+
 ostream &Event::write(ostream &os, const World &w) const {
 	os << "{ needs ";
 	actors.write(os, w, "    ", "  ");
-	os << " world " << world_spec << " chance " << multiplicity << "/" << unlikeliness << " message {";
+	os << " world " << world_spec << " rel " << rel << " chance " << multiplicity << "/" << unlikeliness << " message {";
 	for(const auto &r: render)
 		r->write(os, w);
 	os << "} }" << endl;
@@ -1076,6 +1406,9 @@ istream &Event::read(istream &is, World &w) {
 				is >> unlikeliness;
 				is >> ws;
 			}
+		} else if(section == "rel") {
+			is >> ws;
+			is >> rel;
 		} else if(section == "message") {
 			is >> ws;
 			if(is.peek() != '{') {
