@@ -629,7 +629,7 @@ class Event {
 							write_joined(os, tenses.begin(), tenses.end(), [](const auto &pair) {
 									const auto &[tense, repl] = pair;
 									return tense + "=" + repl;
-							});
+							}, "/");
 							os << "]";
 							return os;
 						}
