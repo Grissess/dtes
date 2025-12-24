@@ -741,8 +741,9 @@ class Event {
 					string literal;
 					vector<unique_ptr<Renderer>> result;
 
-					while(!ss.eof()) {
+					while(true) {
 						char c = ss.get();
+						if(ss.eof()) break;
 						switch(c) {
 							case '$': {
 								if(!literal.empty()) {
