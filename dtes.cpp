@@ -12,6 +12,7 @@
 #include <cctype>
 #include <optional>
 #include <memory>
+#include <fstream>
 
 using namespace std;
 
@@ -72,6 +73,21 @@ string colon_sep(const pair<string, string> &pair) {
 string colon_sep_triple(const tuple<string, string, string> &tup) {
 	const auto &[one, two, three] = tup;
 	return one + ":" + two + ":" + three;
+}
+
+template<typename T>
+void asym_diff(set<T> &prior, set<T> &posterior, set<T> &additions, set<T> &removals) {
+	additions = posterior;
+	for(auto &elem: prior) additions.erase(elem);
+	removals = prior;
+	for(auto &elem: posterior) removals.erase(elem);
+}
+
+template<typename T>
+void asym_diff(set<T> &prior, set<T> &posterior, set<T> &additions, set<T> &removals, set<T> &intersection) {
+	asym_diff(prior, posterior, additions, removals);
+	intersection = posterior;
+	for(auto &elem: additions) intersection.erase(elem);
 }
 
 class World;
@@ -224,6 +240,8 @@ class Player {
 
 		ostream &write(ostream &os, const World &w) const;
 		istream &read(istream &is, World &w);
+
+		void diff(Player *to, ostream &os, const World &w, const World &nw);
 };
 
 class Relation {
@@ -251,6 +269,8 @@ class Relation {
 
 		ostream &write(ostream &os, const World &w) const;
 		istream &read(istream &is, World &w);
+
+		void diff(Relation *to, ostream &os, const World &w, const World &nw);
 };
 
 class Event {
@@ -964,6 +984,8 @@ class World {
 				vector<string> attrs = list_of_strings(is);
 				for(const string &s: attrs)
 					w.world_player.attrs.insert(s);
+			} else if(section == "---") {
+				break;  // common case that we read this from the previous state
 			} else {
 				cerr << "non-section: " << section << endl;
 				break;
@@ -1308,6 +1330,20 @@ istream &Player::read(istream &is, World &w) {
 	return is;
 }
 
+void Player::diff(Player *to, ostream &os, const World &w, const World &nw) {
+	set<string> add, rem;
+	string me = w.players.get_name(this), them = nw.players.get_name(to);
+	asym_diff(attrs, to->attrs, add, rem);
+	for(const string &removed: rem) os << me << "[-" << removed << "]" << endl;
+	for(const string &added: add) os << them << "[+" << added << "]" << endl;
+	set<string> myprops, theirprops;
+	for(const auto &[k, v]: props) myprops.insert(k + ":" + v);
+	for(const auto &[k, v]: to->props) theirprops.insert(k + ":" + v);
+	asym_diff(myprops, theirprops, add, rem);
+	for(const string &removed: rem) os << me << "[-" << removed << "]" << endl;
+	for(const string &added: add) os << me << "[+" << added << "]" << endl;
+}
+
 ostream &Relation::write(ostream &os, const World &w) const {
 	if(directional) {
 		os << "dir";
@@ -1376,6 +1412,18 @@ istream &Relation::read(istream &is, World &w) {
 	return is;
 }
 
+void Relation::diff(Relation *to, ostream &os, const World &w, const World &nw) {
+	set<string> mine, theirs, add, rem;
+	string me = w.relations.get_name(this), them = nw.relations.get_name(to);
+	for(const auto &[lp, rp]: edges)
+		mine.insert(w.players.get_name(lp) + ":" + me + ":" + w.players.get_name(rp));
+	for(const auto &[lp, rp]: to->edges)
+		theirs.insert(nw.players.get_name(lp) + ":" + them + ":" + nw.players.get_name(rp));
+	asym_diff(mine, theirs, add, rem);
+	for(const string &removed: rem) os << "-" << removed << endl;
+	for(const string &added: add) os << "+" << added << endl;
+}
+
 ostream &Event::write(ostream &os, const World &w) const {
 	os << "{ needs ";
 	actors.write(os, w, "    ", "  ");
@@ -1442,8 +1490,10 @@ istream &Event::read(istream &is, World &w) {
 void usage() {
 	cerr << "I know the following arguments (no options yet!):" << endl;
 	cerr << " - cat -- just output the world that was input. useful for testing and validation" << endl;
+	cerr << " - list players [spec] -- list all players, or the ones matching the actorspec (like in an event)" << endl;
 	cerr << " - try_events -- try every event in the set (to be sure they print), as long as enough players exist" << endl;
 	cerr << " - try_event <event> <needid>:<playerid>... -- print out an event with manually-specified bindings" << endl;
+	cerr << " - diff <newworld> -- compares the (old) world that was input to the new world in the named file" << endl;
 	cerr << " - round -- run a round of simulation generating logs" << endl;
 }
 
@@ -1520,6 +1570,61 @@ int main(int argc, char **argv) {
 			} else {
 				cout << *b << endl;
 			}
+		}
+	} else if(action == "diff") {
+		if(args.size() < 3) {
+			cerr << "usage: diff newworld < oldworld" << endl;
+			return 1;
+		}
+		World nw;
+		ifstream f(args.at(2));
+		f >> nw;
+		set<string> oldkeys, newkeys, addkeys, remkeys, samekeys;
+		for(const auto &[id, _]: w.players.forward)
+
+			oldkeys.insert(id);
+		for(const auto &[id, _]: nw.players.forward)
+			newkeys.insert(id);
+		asym_diff(oldkeys, newkeys, addkeys, remkeys, samekeys);
+		for(const string &removed: remkeys)
+			cout << "-" << removed << endl;
+		for(const string &added: addkeys)
+			cout << "+" << added << endl;
+		for(const string &k: samekeys)
+			w.players.get(k)->diff(nw.players.get(k), cout, w, nw);
+
+		oldkeys.clear();
+		newkeys.clear();
+		for(const auto &[id, _]: w.relations.forward)
+			oldkeys.insert(id);
+		for(const auto &[id, _]: nw.relations.forward)
+			newkeys.insert(id);
+		asym_diff(oldkeys, newkeys, addkeys, remkeys, samekeys);
+		for(const string &removed: remkeys)
+			cout << "-" << removed << endl;
+		for(const string &added: addkeys)
+			cout << "+" << added << endl;
+		for(const string &k: samekeys)
+			w.relations.get(k)->diff(nw.relations.get(k), cout, w, nw);
+	} else if(action == "list") {
+		if(args.size() < 3) {
+			cerr << "usage: list <kind> [<filter>]" << endl;
+			return 1;
+		}
+		if(args.at(2) == "players") {
+			optional<Event::ActorSpec> filter;
+			if(args.size() >= 4) {
+				Event::ActorSpec as;
+				istringstream ss(args.at(3));
+				ss >> as;
+				filter = as;
+			}
+			for(const auto &[id, ply]: w.players.forward) {
+				if(filter.has_value() && !filter->applies_to(&ply)) continue;
+				cout << id << " " << ply.name << endl;
+			}
+		} else {
+			cerr << "unknown entity type " << args.at(2) << "--I know about players" << endl;
 		}
 	} else if(action == "round") {
 		random_device rd;
