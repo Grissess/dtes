@@ -422,14 +422,14 @@ property references may have their first identifier omitted to use this "last
 player", as in `$<.prop>` or `$.prop`. So, for example:
 
 ```
-$a walk[sing=s] off the edge of the world.
+$a walk[sing=s/nb=s] off the edge of the world.
 ```
 
 Will conjugate `walk` or `walks` based on the tense of `a`'s pronouns (more
 accurately, the pronouns of the Player bound to `a`), and
 
 ```
-$a shoot[sing=s] <p> $.rangewep at $<b>.
+$a shoot[sing=s/nb=s] <p> $.rangewep at $<b>.
 ```
 
 Will use `a`'s property `rangewep`, as well as `a`'s possessive pronoun.
@@ -513,6 +513,63 @@ Each event is a unique object, however they can have the same details (needs,
 world, and message sections), which allows the simple use of multiplicity
 should some events be more "likely" than others, especially if they may be used
 as fallbacks.
+
+# Help Wanted!
+
+If you have any comments or concerns, open an issue on the project's GitHub
+page. Or, better still, open a pull request! I don't bite _that_ much :)
+
+I know about these deficiences. That doesn't mean they shouldn't be discussed,
+but these would be great things to work on for anyone looking to whet their
+appetite.
+
+- The parser is not well-specified and rather finicky. Syntactic whitespace is
+  _required_ in some places, and it's not always clear where. Colons are
+  required in some positions, while forbidden in others, next to brace blocks,
+  which looks inconsistent. While it is idempotent with its own output methods,
+  it's definitely possible for human error when authoring new formats.
+  Additionally, errors are nonexistent; if the parse fails, you either get a
+  partial (corrupted) world or the program hangs waiting for more input. As an
+  added bonus, escapes mostly don't work, which makes it an arms race to figure
+  out what characters are legal within a syntactic element. A more robust and
+  better-supported format like JSON, which handles errors and escapes better,
+  would be useful, but I want to generally keep this independent of system
+  libraries. (If someone wants to _embed_ a parser, that's probably fine.)
+- The user interface isn't great. It's meant to write out strings, of course,
+  but we might be able to do better. At the very least, it would be nice to
+  "hint" downstream consumers of events about things like "character profile
+  images" that they might be able to render and associate to characters. This
+  is probably the biggest feature the web-based simulator still does better
+  than this.
+- Although the custom syntax is a useful shorthand, there's still quite a bit
+  of boilerplate. For example, it's idiomatic to choose an attribute like
+  `dead` or `ko` to mean "removed from the game", which unfortunately means
+  `!dead` or `!ko` has to be peppered in just about every `needs` spec. The
+  flexibility is, of course, the _ability_ to refer to characters which have
+  been otherwise removed from the game, but this is so overwhelmingly rare that
+  it's hard to justify the cost. Similar cross-cutting concerns happen with
+  relations that significantly affect whether or not characters antagonize each
+  other (like the `allies` example). I don't want to complicate parsing much
+  further, though; perhaps a preprocessor is a better choice.
+- The "world" file contains contributions from two separate personas. The
+  "world author" largely defines the event pool and the semantic meanings of
+  attributes, properties, and relations. The "tournament organizer" then adds
+  their characters and wants to see it run. This is a pretty clear separation
+  in some cases--the author is responsible for `events`, and the organizer for
+  `players`--but not so in other cases. (In particular, who owns `pronouns`?
+  What if the author fails to foresee a case the organizer needs to describe a
+  certain character? Such misuse would be pervasive in all their events.)
+  Additional strictness in parsing means some things _have_ to come in a
+  certain order. For example, `relations` can't name players before those
+  `players` are defined. Because of this, it's hard to just "concatenate" each
+  other's contributions.
+- The C++ is not at all idiomatic. (I'm learning its modern incarnation while
+  writing this.) Implementations in other languages are welcome, as is some
+  clean-up and deduplication. I would still rather not pull in large
+  dependencies, however.
+- The simulator is very, very flexible. I consider that a good thing, but it
+  does mean potential users might need some guidance on using the tools given
+  to them. The documentation is pretty lacking in that regard.
 
 # Copyright
 
