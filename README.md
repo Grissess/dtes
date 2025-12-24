@@ -335,6 +335,44 @@ world [required,!disallowed]+[added]-[removed]
 These match the world's "global" attributes, rather than any single player. The
 semantics are otherwise the same.
 
+### Chance
+
+The `chance` entry defines two numbers:
+
+```
+chance multiplicity
+chance multiplicity/unlikeliness
+```
+
+Both of these must be positive integers, and default to `1` if not specified.
+
+- **Multiplicity**: The number of times this even can happen in one round.
+  Since all copies participate in the shuffle, this also effectively makes it
+  "more likely" relative to the other events.
+- **Unlikeliness**: If this event is picked, it has to succeed on a
+  1-in-unlikeliness random roll or be discarded. For example, unlikeliness 2 is
+  a coinflip chance, and unlikeliness 4 is a 1-in-4 chance of being actually
+  used if present in the shuffle order.
+
+> [!WARNING]
+> Multiplicity is presently implemented by duplicating a pointer to the event
+> in the shuffle deck. Pointers are small (usually 8 bytes), but asking for
+> thousands or millions of copies is asking for a crash, not to mention a very
+> slow event shuffle.
+
+Probabilistically, the ratio is _close_ to the expected value of this event
+being chosen relative to a `1` baseline uniform of all other events. For
+example, `chance 1/2` means this event only appears once in the event deck (and
+thus can only happen at most once per round), but it may be ignored by a
+coinflip. `chance 4/8`, however, means the event can happen up to 4 times, but
+only if it passes a 1-in-8 check. The _expected_ value is still once every
+other round, but the event can still happen far more times in an "unusually
+lucky" round compared to the `chance 1/2` specification.
+
+For events that have no `needs` specification (so-called "unassociated"
+events), this is the only way to control their randomness. (They can also match
+on `world` properties, but that matching is deterministic.)
+
 ### Message
 
 The message is written to output for each Event after the new state of the
