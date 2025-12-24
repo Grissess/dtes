@@ -1130,7 +1130,10 @@ optional<Event::Binding> Event::Binding::try_bind(const Event &e, const World &w
 		}
 		if(!skip) {
 			Binding b(e, bindings);
-			if(e.rel.satisfied(b, w)) return make_optional(b);
+			if(e.rel.satisfied(b, w)) {
+				erase_if(players, [&seen](Player *&p) { return seen.contains(p); });
+				return make_optional(b);
+			}
 		}
 
 		bool exhausted = true;
