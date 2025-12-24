@@ -308,9 +308,8 @@ cannot "trigger" another one to match when it did not before.
 ### Rel
 
 This section contains relations. If this isn't empty, the semantics of matching
-change; in particular, two different `needs` entries can match the same
-`Player`. The matching algorithm is also much slower, so use this only if
-needed.
+change; in particular, the matching algorithm is also much slower, so use this
+only if needed.
 
 Each whitespace separated word in this list is of the following forms:
 

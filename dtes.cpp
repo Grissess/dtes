@@ -1117,11 +1117,21 @@ optional<Event::Binding> Event::Binding::try_bind(const Event &e, const World &w
 
 	while(true) {
 		map<string, Player *> bindings;
+		set<Player *> seen;
+		bool skip = false;
 		for(int i = 0; i < keys.size(); i++) {
-			bindings.insert_or_assign(keys[i], sets[i][indices[i]]);
+			Player *p = sets[i][indices[i]];
+			if(seen.contains(p)) {
+				skip = true;
+				break;
+			}
+			seen.insert(p);
+			bindings.insert_or_assign(keys[i], p);
 		}
-		Binding b(e, bindings);
-		if(e.rel.satisfied(b, w)) return make_optional(b);
+		if(!skip) {
+			Binding b(e, bindings);
+			if(e.rel.satisfied(b, w)) return make_optional(b);
+		}
 
 		bool exhausted = true;
 		for(int i = 0; i < keys.size(); i++) {
